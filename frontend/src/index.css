@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+@keyframes flashToastTop {
+	0% {
+		opacity: 0;
+		transform: translateY(-36px);
+	}
+	12% {
+		opacity: 1;
+		transform: translateY(0);
+	}
+	82% {
+		opacity: 1;
+		transform: translateY(0);
+	}
+	100% {
+		opacity: 0;
+		transform: translateY(-36px);
+	}
+}
+
+.flash-toast-animate {
+	animation-name: flashToastTop;
+	animation-timing-function: ease;
+	animation-fill-mode: both;
+}
