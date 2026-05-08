@@ -12,12 +12,37 @@ const statusPillClass = {
   cancelled: 'bg-red-100 text-red-700',
 };
 
+const paymentPillClass = {
+  cod_pending: 'bg-amber-100 text-amber-700',
+  paid: 'bg-green-100 text-green-700',
+  failed: 'bg-red-100 text-red-700',
+  refunded: 'bg-sky-100 text-sky-700',
+};
+
 function humanizeStatus(value) {
   if (!value) return '-';
   return value
     .split('_')
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
+}
+
+function humanizePaymentStatus(value) {
+  if (value === 'cod_pending') return 'Pending';
+  return humanizeStatus(value);
+}
+
+function getPaymentMethod(order) {
+  const paymentId = String(order?.paymentId || '');
+  if (paymentId.startsWith('COD-') || order?.paymentStatus === 'cod_pending') {
+    return 'Cash on Delivery';
+  }
+  return 'Online (Razorpay)';
+}
+
+function isCashOnDeliveryOrder(order) {
+  const paymentId = String(order?.paymentId || '');
+  return paymentId.startsWith('COD-') || order?.paymentStatus === 'cod_pending';
 }
 
 const MyOrders = () => {
@@ -110,6 +135,7 @@ const MyOrders = () => {
             : '-';
 
           const isCompleted = ['delivered', 'cancelled'].includes(order.orderStatus);
+          const isCodOrder = isCashOnDeliveryOrder(order);
 
           return (
             <div key={order._id} className={`bg-white border border-zinc-200 rounded-xl p-5 ${isCompleted ? 'opacity-60' : ''}`}>
@@ -140,6 +166,29 @@ const MyOrders = () => {
                     <p className='font-semibold'>Rs. {item.subtotal || item.price || 0}</p>
                   </div>
                 ))}
+              </div>
+
+              <div className={`mt-4 grid grid-cols-1 ${isCodOrder ? 'sm:grid-cols-1' : 'sm:grid-cols-3'} gap-3 text-sm`}>
+                <div className='border border-zinc-200 rounded-md px-3 py-2'>
+                  <p className='text-zinc-500'>Payment Method</p>
+                  <p className='font-medium'>{getPaymentMethod(order)}</p>
+                </div>
+
+                {!isCodOrder ? (
+                  <div className='border border-zinc-200 rounded-md px-3 py-2'>
+                    <p className='text-zinc-500'>Payment Status</p>
+                    <span className={`inline-flex mt-1 text-xs px-2.5 py-1 rounded-full ${paymentPillClass[order.paymentStatus] || 'bg-zinc-100 text-zinc-700'}`}>
+                      {humanizePaymentStatus(order.paymentStatus)}
+                    </span>
+                  </div>
+                ) : null}
+
+                {!isCodOrder ? (
+                  <div className='border border-zinc-200 rounded-md px-3 py-2'>
+                    <p className='text-zinc-500'>Payment ID</p>
+                    <p className='font-medium break-all'>{order.paymentId || '-'}</p>
+                  </div>
+                ) : null}
               </div>
 
               <div className='mt-4 flex justify-between items-center'>

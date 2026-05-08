@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useAuth } from '../../auth/hooks/useAuth'
 import { useFlash } from '../../flash/hooks/useFlash'
-import { createOrder } from '../../order/services/order.api'
+import { createOrder, createPaymentOrder, verifyPayment } from '../../order/services/order.api'
 import { addToCart, getShopProductById } from '../services/shop.api'
 
 const ProductDetails = () => {
@@ -18,6 +18,7 @@ const ProductDetails = () => {
   const [buyingNow, setBuyingNow] = useState(false)
   const [quantity, setQuantity] = useState(1)
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false)
+  const [paymentMethod, setPaymentMethod] = useState('online')
 
   const stockValue = Number(product?.stock || 0)
   const isOutOfStock = stockValue <= 0
@@ -105,6 +106,139 @@ const ProductDetails = () => {
     setIsCheckoutOpen(true)
   }
 
+  const loadRazorpayScript = () => {
+    return new Promise((resolve) => {
+      const script = document.createElement('script')
+      script.src = 'https://checkout.razorpay.com/v1/checkout.js'
+      script.onload = () => {
+        resolve(true)
+      }
+      script.onerror = () => {
+        resolve(false)
+      }
+      document.body.appendChild(script)
+    })
+  }
+
+  const placeDirectOrderWithRazorpay = async () => {
+    if (!product || adding || buyingNow) return
+    if (isOutOfStock) {
+      showFlash('This product is out of stock', 'error')
+      return
+    }
+
+    try {
+      setBuyingNow(true)
+      let currentUser = user
+      if (!currentUser) {
+        const meResponse = await handleGetMe()
+        currentUser = meResponse?.user || null
+      }
+
+      const phoneValue = String(currentUser?.contact || '').trim()
+      const addressValue = String(currentUser?.address || '').trim()
+
+      if (!phoneValue || !addressValue) {
+        showFlash('Please add your address and phone number in My Account before checkout', 'error', 3500)
+        navigate('/my-account')
+        setBuyingNow(false)
+        return
+      }
+
+      const scriptLoaded = await loadRazorpayScript()
+      if (!scriptLoaded) {
+        throw new Error('Failed to load Razorpay script')
+      }
+
+      const unitPrice = getEffectivePrice(product)
+      const safeQuantity = Math.min(Math.max(1, Number(quantity || 1)), stockValue)
+      const subtotal = unitPrice * safeQuantity
+
+      // Create payment order on backend
+      const paymentOrderResponse = await createPaymentOrder(subtotal, 'INR')
+      const { order, key } = paymentOrderResponse
+
+      const options = {
+        key: key,
+        amount: order.amount,
+        currency: order.currency,
+        order_id: order.id,
+        handler: async function (response) {
+          try {
+            // Verify payment on backend
+            const verifyResponse = await verifyPayment(
+              response.razorpay_order_id,
+              response.razorpay_payment_id,
+              response.razorpay_signature
+            )
+
+            if (verifyResponse.verified) {
+              // Create order in database with verified payment
+              const orderPayload = {
+                items: [
+                  {
+                    productId: product._id,
+                    name: product.name,
+                    price: unitPrice,
+                    quantity: safeQuantity,
+                    subtotal,
+                  },
+                ],
+                totalAmount: subtotal,
+                paymentId: response.razorpay_payment_id,
+                paymentStatus: 'paid',
+                orderStatus: 'confirmed',
+              }
+
+              await createOrder(orderPayload)
+              setIsCheckoutOpen(false)
+              setPaymentMethod('online')
+              showFlash('Order placed successfully with online payment', 'success', 3000)
+              await handleGetMe()
+              navigate('/my-orders')
+            } else {
+              throw new Error(verifyResponse.message || 'Payment verification failed')
+            }
+          } catch (err) {
+            const message = err.message || 'Error processing payment'
+            setError(message)
+            showFlash(message, 'error', 3500)
+          }
+        },
+        prefill: {
+          name: currentUser?.name || '',
+          email: currentUser?.email || '',
+          contact: currentUser?.contact || '',
+        },
+        theme: {
+          color: '#18181b',
+        },
+        modal: {
+          ondismiss: function () {
+            setBuyingNow(false)
+            showFlash('Payment cancelled', 'info', 2000)
+          },
+        },
+      }
+
+      const rzp = new window.Razorpay(options)
+      rzp.open()
+    } catch (err) {
+      const message = err.message || 'Could not initiate payment'
+      setError(message)
+      showFlash(message, 'error', 3500)
+      setBuyingNow(false)
+    }
+  }
+
+  const handlePlaceOrder = () => {
+    if (paymentMethod === 'online') {
+      placeDirectOrderWithRazorpay()
+    } else {
+      placeDirectOrderWithCOD()
+    }
+  }
+
   const placeDirectOrderWithCOD = async () => {
     if (!product || adding || buyingNow) return
     if (isOutOfStock) {
@@ -151,6 +285,7 @@ const ProductDetails = () => {
 
       await createOrder(orderPayload)
       setIsCheckoutOpen(false)
+      setPaymentMethod('online')
       showFlash('Order placed successfully', 'success', 3000)
       await handleGetMe()
       navigate('/my-orders')
@@ -295,24 +430,36 @@ const ProductDetails = () => {
           <div className='w-full max-w-lg bg-white rounded-2xl shadow-2xl p-6'>
             <h3 className='text-xl font-semibold'>Place Your Order</h3>
             <p className='text-zinc-600 mt-1 text-sm'>
-              Choose your payment method. Online payment will be available soon.
+              Choose your payment method
             </p>
 
             <div className='mt-5 space-y-3'>
-              <label className='flex items-center justify-between border border-zinc-200 rounded-lg p-3 opacity-60 cursor-not-allowed'>
+              <label className='flex items-center justify-between border border-zinc-300 rounded-lg p-3 hover:bg-zinc-50 cursor-pointer'>
                 <div className='flex items-center gap-3'>
-                  <input type='radio' disabled name='payment-mode' />
-                  <span>Online Payment</span>
+                  <input 
+                    type='radio' 
+                    name='payment-mode' 
+                    value='online'
+                    checked={paymentMethod === 'online'}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                  />
+                  <span className='font-medium'>Online Payment (Razorpay)</span>
                 </div>
-                <span className='text-xs px-2 py-1 rounded bg-amber-100 text-amber-700'>Coming Soon</span>
+                <span className='text-xs px-2 py-1 rounded bg-blue-100 text-blue-700'>Live</span>
               </label>
 
-              <label className='flex items-center justify-between border border-zinc-300 rounded-lg p-3 bg-zinc-50'>
+              <label className='flex items-center justify-between border border-zinc-300 rounded-lg p-3 bg-zinc-50 hover:bg-zinc-100 cursor-pointer'>
                 <div className='flex items-center gap-3'>
-                  <input type='radio' name='payment-mode' checked readOnly />
+                  <input 
+                    type='radio' 
+                    name='payment-mode' 
+                    value='cod'
+                    checked={paymentMethod === 'cod'}
+                    onChange={(e) => setPaymentMethod(e.target.value)}
+                  />
                   <span className='font-medium'>Cash on Delivery</span>
                 </div>
-                <span className='text-xs px-2 py-1 rounded bg-green-100 text-green-700'>Selected</span>
+                <span className='text-xs px-2 py-1 rounded bg-green-100 text-green-700'>Available</span>
               </label>
             </div>
 
@@ -328,7 +475,10 @@ const ProductDetails = () => {
             <div className='mt-6 flex items-center justify-end gap-3'>
               <button
                 type='button'
-                onClick={() => setIsCheckoutOpen(false)}
+                onClick={() => {
+                  setIsCheckoutOpen(false)
+                  setPaymentMethod('online')
+                }}
                 disabled={buyingNow}
                 className='px-4 py-2 rounded-md bg-zinc-200 text-zinc-800 cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed'
               >
@@ -336,11 +486,11 @@ const ProductDetails = () => {
               </button>
               <button
                 type='button'
-                onClick={placeDirectOrderWithCOD}
+                onClick={handlePlaceOrder}
                 disabled={buyingNow || isOutOfStock}
                 className='px-4 py-2 rounded-md bg-zinc-900 text-white cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed'
               >
-                {buyingNow ? 'Placing Order...' : 'Confirm Order'}
+                {buyingNow ? (paymentMethod === 'online' ? 'Processing Payment...' : 'Placing Order...') : 'Confirm Order'}
               </button>
             </div>
           </div>
