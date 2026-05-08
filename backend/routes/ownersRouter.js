@@ -7,6 +7,13 @@ const generateToken = require('../utils/generateToken');
 const isOwnerLogin = require('../middlewares/isOwnerLogin');
 const { blacklistToken } = require('../utils/tokenBlacklist');
 
+const ownerCookieOptions = {
+    httpOnly: true,
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+}
+
 function addHashIfNotExists(str) {
     if (!str) return "#000000";
     if (!str.startsWith("#")) {
@@ -88,7 +95,7 @@ router.post("/api/login", async (req, res)=>{
         }
 
         const token = generateToken(owner)
-        res.cookie("token2", token)
+        res.cookie("token2", token, ownerCookieOptions)
         res.status(200).json({
             message: "Admin login successfull",
             owner: {
@@ -110,7 +117,7 @@ router.get("/api/logout", async (req, res)=>{
         // If blacklist persistence fails, continue with logout.
     }
 
-    res.cookie("token2","")
+    res.cookie("token2","", { ...ownerCookieOptions, maxAge: 0 })
     res.status(200).json({
         message: "Owner logged out successfully"
     })
