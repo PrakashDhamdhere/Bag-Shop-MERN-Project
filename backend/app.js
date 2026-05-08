@@ -13,6 +13,8 @@ const apiOrdersRouter = require('./routes/apiOrdersRouter')
 const apiPaymentRouter = require('./routes/apiPaymentRouter')
 const cors = require('cors')
 
+app.set('trust proxy', 1)
+
 const normalizeOrigin = (value) => String(value || '').trim().replace(/\/+$/, '');
 const allowedOrigins = String(process.env.ORIGIN || '')
     .split(',')

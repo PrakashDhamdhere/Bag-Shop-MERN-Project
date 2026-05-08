@@ -4,6 +4,13 @@ const jwt = require('jsonwebtoken')
 const generateToken = require('../utils/generateToken')
 const { blacklistToken } = require('../utils/tokenBlacklist')
 
+const cookieOptions = {
+    httpOnly: true,
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    path: '/',
+}
+
 module.exports.registerUser = async (req, res)=>{
     let {email, password, fullname} = req.body;
     let user = await userModel.findOne({email})
@@ -44,7 +51,7 @@ module.exports.loginUser = async (req, res)=>{
                 if(result){
                     // set the cookie
                     let token = generateToken(user)
-                    res.cookie("token", token)
+                    res.cookie("token", token, cookieOptions)
                     res.status(200).json({
                         message: "Logged in successfully",
                         user
@@ -72,7 +79,7 @@ module.exports.logoutUser = async (req, res)=>{
         // If blacklist persistence fails, still clear cookie and logout.
     }
 
-    res.cookie("token", "")
+    res.cookie("token", "", { ...cookieOptions, maxAge: 0 })
     res.status(200).json({
         message: "Logged out successfully"
     })
