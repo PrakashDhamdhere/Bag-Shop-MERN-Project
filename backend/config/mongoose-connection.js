@@ -2,7 +2,9 @@ const mongoose = require('mongoose');
 // const dbgr = require('debug')("development:mongoose");
 
 mongoose
-.connect(`${process.env.MONGO_URI}/bag-shop`)
+.connect(process.env.MONGO_URI, {
+    dbName: 'bag-shop',
+})
 .then(()=>{
     console.log("mongodb connected...")
 })

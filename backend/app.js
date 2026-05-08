@@ -13,8 +13,23 @@ const apiOrdersRouter = require('./routes/apiOrdersRouter')
 const apiPaymentRouter = require('./routes/apiPaymentRouter')
 const cors = require('cors')
 
+const normalizeOrigin = (value) => String(value || '').trim().replace(/\/+$/, '');
+const allowedOrigins = String(process.env.ORIGIN || '')
+    .split(',')
+    .map(normalizeOrigin)
+    .filter(Boolean);
+
 app.use(cors({
-    origin: process.env.ORIGIN,
+    origin: (origin, callback) => {
+        if (!origin) {
+            return callback(null, true);
+        }
+
+        const normalizedRequestOrigin = normalizeOrigin(origin);
+        const isAllowed = allowedOrigins.includes(normalizedRequestOrigin);
+
+        return callback(null, isAllowed);
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"]
